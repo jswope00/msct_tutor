@@ -39,32 +39,23 @@ PHASES = {
     "disease": {
         "type": "selectbox",
         "label": """Enter a disease to practice your illness scripts.""",
-        "options": ["9 year old has a bloody nose", "elderly man has dementia"],
+        "options": ["60-year-old woman with chronic cough", "elderly man has dementia"],
+        "skip_run": True,
+        "ai_response": """Let's practice on the following case: 
+
+Your next appointment is with a 60-year-old woman who is being evaluated for a chronic cough. She has a history of cough for 8 months, and during the examination, you auscultate a left apical systolic murmur.\n
+
+If you were initially thinking of the following diagnosis: Pulmonary edema (left-sided congestive heart failure)
+
+And then you determine the following from the patient's physical exam: Her heart rate is 70 beats/min, and thoracic auscultation reveals crackles bilaterally.
+
+Would the new information make my decision:
++1 More likely, 
+0 Neither more nor less likely,
+-1 Less likely ?'""",
         "instructions": """
-        The user will give you a disease that they want to practice on. 
-
-        Firstly, confirm that the user has given you a valid disease that you can provide a case study for. If not, please ask them to give you a valid disease and then stop and wait for their response. 
-        
-        If the user provides a valid disease, please generate a two-sentence case scenario statement that outlines a clinical presentation or problem that is related to an initial diagnosis, diagnostic testing, or treatment to the chosen disease. State the initial diagnosis based on the given case. This helps establish the starting point for their reasoning. 
-
-        Then, generate a second one-sentence statement related to an initial diagnosis, diagnostic testing, or treatment. Here you present a symptom, test result, or additional clinical information that could be relevant to a differential diagnosis or treatment choice. This information should allow for differentiation between the initial diagnosis and other potential options. 
-
-        Finally, ask the user if 'the new information makes their decision [+1] More likely , [0] Neither more nor less likely, or [-1] Less likely ?
-        It is important that this new information makes the likert score +1, 0, or -1. Do not always present +1 scenarios, but also 0, and -1. This second statement introduces elements of uncertainty in the initial diagnosis and is relevant to the specialty in question. 
-
-        Use the following format: 
-        Your next appointment is with a [Patient Description] that is being evaluated for [Symptom]. [Additional Patient History]. 
-
-        If you were initially thinking of the following diagnosis/treatment: [Initial Diagnosis/Treatment], 
-
-        and then you determine the following from the patient's history/exam/test results: [Additional Finding]. 
-
-        Would the new information make my decision: 
-        +1 More likely, 
-        0 Neither more nor less likely, or 
-        -1 Less likely"
-        
-        Here is a sample: 
+        This is the case the user has been presented with:
+        ========
 
         Case: Your next appointment is with a 60-year-old woman who is being evaluated for a chronic cough. She has a history of cough for 8 months, and during the examination, you auscultate a left apical systolic murmur.
 
@@ -76,14 +67,9 @@ PHASES = {
         +1 More likely, 
         0 Neither more nor less likely,
         -1 Less likely ?'
-        """,
-        "scored_phase": True,
-        "rubric": """
-            1. About
-                1 points - The user has provided a valid disease for which you can provide a case study
-                0 points - The user has entered something other than a disease. 
-        """,
-        "minimum_score": 1
+        ==========
+        Next, they will provide a rating and a rationale for their rating. 
+        """
     },
     "likert": {
         "type": "selectbox",
@@ -94,13 +80,12 @@ PHASES = {
         "instructions": """ The user reacts to the second statement you provided with a likert scale rating indicating if they are more or less likely to stick with the original diagnosis. Please respond verbatim "Thank you for your response. Please provide a justification in the next step".
         """,
         "user_input": "",
-        "ai_response": "",
         "allow_skip": True
     },
     "rationale": {
        "type": "text_area",
        "height": 200,
-       "value": "High blood pressure increases the likelihood of spontaneous nosebleeds.",
+       "value": "The presence of bilateral crackles reinforces the likelihood of pulmonary edema caused by left-sided heart failure. Therefore, the new information makes the diagnosis of pulmonary edema more likely.",
        "label": "Please provide written justification for your chosen Likert ranking.",
        "instructions": """
        The user will provide a written rationale for their ranking. 

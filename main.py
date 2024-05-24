@@ -175,10 +175,13 @@ class AssistantManager:
                 stream=True
             )
 
+            print(f"Current phase: {current_phase}")
+
             context_manager = st.spinner('Checking Score...') if scoring_run else nullcontext()
 
             result = ""
             run_id = None
+
 
             with context_manager:
                 for event in stream:
@@ -193,12 +196,12 @@ class AssistantManager:
                                     res_box.info(body=f'{result}', icon="🤖")
                                 if scoring_run and SCORING_DEBUG_MODE:
                                     res_box.info(body=f'SCORE (DEBUG MODE): {result}', icon="🤖")
+            
             if not run_id:
                 run_id = event.data.id
 
             # Retrieve the run object to get the usage information
             run = self.client.beta.threads.runs.retrieve(run_id=run_id, thread_id=self.thread.id)
-
 
             if not scoring_run:
                 st_store(result, current_phase, "ai_response")
@@ -382,11 +385,13 @@ def main():
                 st.info(st.session_state[key], icon="🤖")
 
         if submit_button:
-            # Add INSTRUCTIONS message to the thread
+                    
+            
             openai_assistant.add_message_to_thread(
                 role="assistant",
                 content=PHASE_DICT.get("instructions", "")
             )
+
             # Store the users input in a session variable
             st_store(user_input[PHASE_NAME], PHASE_NAME, "user_input")
             # Add USER MESSAGE to the thread
@@ -397,7 +402,23 @@ def main():
             # Currently, all instructions are handled in the system prompts, so no need to add additional instructions here.
             instructions = ""
             # Run the thread
-            openai_assistant.run_assistant(instructions, PHASE_NAME)
+            if PHASE_DICT.get("skip_run", False) == False:
+                print("Assistant run 1")
+                openai_assistant.run_assistant(instructions, PHASE_NAME)
+
+            if 'ai_response' in PHASE_DICT:
+                # Add INSTRUCTIONS message to the thread
+                res_box = st.info(body="", icon="🤖")
+                result = ""
+                report = []
+                
+                hard_coded_message = PHASE_DICT['ai_response']
+                for char in hard_coded_message:
+                    result += char
+                    report.append(char)
+                    res_box.info(body=f'{result}', icon="🤖")
+                st.session_state[f"{PHASE_NAME}_ai_response"] = hard_coded_message
+                st_store(user_input[PHASE_NAME], PHASE_NAME, "user_input")
 
 
             if PHASE_DICT.get("scored_phase", "") == True:
@@ -407,6 +428,7 @@ def main():
                         role="assistant",
                         content=scoring_instructions,
                     )
+                    print("Assistant run 2")
                     openai_assistant.run_assistant(instructions, PHASE_NAME, True)
                     if check_score(PHASE_NAME):
                         st.session_state['CURRENT_PHASE'] = min(st.session_state['CURRENT_PHASE'] + 1, len(PHASES) - 1)
