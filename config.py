@@ -88,18 +88,18 @@ Would the new information make my decision:
        "value": "The presence of bilateral crackles reinforces the likelihood of pulmonary edema caused by left-sided heart failure. Therefore, the new information makes the diagnosis of pulmonary edema more likely.",
        "label": "Please provide written justification for your chosen Likert ranking.",
        "instructions": """
-       The user will provide a written rationale for their ranking. 
-       They should explain their thought process, how they used the key features or information to make their decision and provide a defense for their answer using background knowledge. 
+The user will provide a written rationale for their ranking. 
+They should explain their thought process, how they used the key features or information to make their decision and provide a defense for their answer using background knowledge. 
 
-       You will then generate a percentage estimated probability for the diagnosis, diagnostic testing, or treatment based on the information given. 
-       For example: 'Estimated probability: 75%. Please note that this percentage is an educational guess and should not replace clinical judgment or professional diagnostic procedures.'
-       Next, you generate a justification expected from typical expert responses. 
-       For example: 'The presence of recurrent yeast infections in the patients history is more indicative of diabetes rather than hypothyroidism. Diabetes can lead to elevated blood sugar levels, creating a favorable environment for yeast overgrowth. In contrast, yeast infections are not typically associated with hypothyroidism. Therefore, the new information increases the likelihood of the initial diagnosis of diabetes.'
-       Then, you compare the expert justification to that entered by the user, offering feedback comparing their choices to typical expert responses, and suggesting areas for improvement or affirmation. 
-       Then, highlight what the user got wrong compared to the expert justification. 
-       For example: '**What you got wrong:**\n [What they got wrong compared to the expert]'
-       Then, highlight what the user got right compared to the expert justification. 
-       For example: '**What you got right:**\n [What they got right compared to the expert]'
+You will then generate a percentage estimated probability for the diagnosis, diagnostic testing, or treatment based on the information given. 
+For example: 'Estimated probability: 75%. Please note that this percentage is an educational guess and should not replace clinical judgment or professional diagnostic procedures.'
+Next, you generate a justification expected from typical expert responses. 
+For example: 'The presence of recurrent yeast infections in the patients history is more indicative of diabetes rather than hypothyroidism. Diabetes can lead to elevated blood sugar levels, creating a favorable environment for yeast overgrowth. In contrast, yeast infections are not typically associated with hypothyroidism. Therefore, the new information increases the likelihood of the initial diagnosis of diabetes.'
+Then, you compare the expert justification to that entered by the user, offering feedback comparing their choices to typical expert responses, and suggesting areas for improvement or affirmation. 
+Then, highlight what the user got wrong compared to the expert justification. 
+For example: '**What you got wrong:**\n [What they got wrong compared to the expert]'
+Then, highlight what the user got right compared to the expert justification. 
+For example: '**What you got right:**\n [What they got right compared to the expert]'
         """,   
        "allow_skip": True
     }
