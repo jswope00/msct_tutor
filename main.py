@@ -175,13 +175,10 @@ class AssistantManager:
                 stream=True
             )
 
-            print(f"Current phase: {current_phase}")
-
             context_manager = st.spinner('Checking Score...') if scoring_run else nullcontext()
 
             result = ""
             run_id = None
-
 
             with context_manager:
                 for event in stream:
@@ -196,7 +193,7 @@ class AssistantManager:
                                     res_box.info(body=f'{result}', icon="🤖")
                                 if scoring_run and SCORING_DEBUG_MODE:
                                     res_box.info(body=f'SCORE (DEBUG MODE): {result}', icon="🤖")
-            
+
             if not run_id:
                 run_id = event.data.id
 
@@ -384,9 +381,8 @@ def main():
                 # Then print the stored AI Response
                 st.info(st.session_state[key], icon="🤖")
 
-        if submit_button:
-                    
-            
+        if submit_button:     
+            # Add INSTRUCTIONS message to the thread
             openai_assistant.add_message_to_thread(
                 role="assistant",
                 content=PHASE_DICT.get("instructions", "")
@@ -403,16 +399,16 @@ def main():
             instructions = ""
             # Run the thread
             if PHASE_DICT.get("skip_run", False) == False:
-                print("Assistant run 1")
+                # Only run the assistant if skip_run is False. If skip_run is true, then we just add messages to the thread and will run them all in some future phase. 
                 openai_assistant.run_assistant(instructions, PHASE_NAME)
 
             if 'ai_response' in PHASE_DICT:
-                # Add INSTRUCTIONS message to the thread
                 res_box = st.info(body="", icon="🤖")
                 result = ""
                 report = []
                 
                 hard_coded_message = PHASE_DICT['ai_response']
+                #TO-DO: This is supposed to stream, but it does not right now.
                 for char in hard_coded_message:
                     result += char
                     report.append(char)
@@ -428,7 +424,6 @@ def main():
                         role="assistant",
                         content=scoring_instructions,
                     )
-                    print("Assistant run 2")
                     openai_assistant.run_assistant(instructions, PHASE_NAME, True)
                     if check_score(PHASE_NAME):
                         st.session_state['CURRENT_PHASE'] = min(st.session_state['CURRENT_PHASE'] + 1, len(PHASES) - 1)
