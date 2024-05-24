@@ -37,9 +37,8 @@ SCORING_DEBUG_MODE = True
 
 PHASES = {
     "disease": {
-        "type": "selectbox",
+        "type": "text_area",
         "label": """Enter a disease to practice your illness scripts.""",
-        "options": ["9 year old has a bloody nose", "elderly man has dementia"],
         "instructions": """
         The user will give you a disease that they want to practice on. 
 
