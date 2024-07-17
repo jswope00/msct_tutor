@@ -1,4 +1,6 @@
-python-dotenv
 openai
 streamlit
 streamlit_extras
+python-dotenv
+anthropic
+google-generativeai
