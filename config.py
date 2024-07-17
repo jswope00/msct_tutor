@@ -194,7 +194,6 @@ else:
     random_key = random.choice(list(DISEASE_GENERATOR.keys()))
 
 PHASES = {
-
     "about": {
         "name": "Choose a Disease",
         "fields": {
@@ -362,5 +361,3 @@ LLM_CONFIGURATIONS = {
         "price_output_token_1M": 1.25
     }
 }
-
-
