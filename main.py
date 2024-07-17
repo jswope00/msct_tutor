@@ -1,18 +1,38 @@
 import openai
+import google.generativeai as generativeai
+import anthropic
 import os
-from dotenv import find_dotenv, load_dotenv
-import json
+import importlib
+from dotenv import load_dotenv
 import re
 import streamlit as st
 from streamlit_extras.stylable_container import stylable_container
 from streamlit_extras.let_it_rain import rain
-from contextlib import nullcontext
-import openai
+
+load_dotenv()
+
 from config import *
 
-load_dotenv(override=True)
-client = openai.OpenAI()
+if "CURRENT_PHASE" not in st.session_state:
+    st.session_state['additional_prompt'] = ""
+    st.session_state['chat_history'] = []
+    st.session_state['CURRENT_PHASE'] = 0
+    st.session_state['TOTAL_PRICE'] = 0
 
+def randomize_key():
+    return random.choice(list(DISEASE_GENERATOR.keys()))
+
+if "random_key" not in st.session_state:
+    st.session_state["random_key"] = randomize_key()
+
+st.session_state["random_key"] = randomize_key()
+
+
+openai.api_key = os.getenv("MSCT_API_KEY")
+gemini_api_key = os.getenv('GOOGLE_API_KEY')
+claude_api_key = os.getenv('CLAUDE_API_KEY')
+
+user_input = {}
 function_map = {
     "text_input": st.text_input,
     "text_area": st.text_area,
@@ -20,242 +40,228 @@ function_map = {
     "button": st.button,
     "radio": st.radio,
     "markdown": st.markdown,
-    "selectbox": st.selectbox
+    "selectbox": st.selectbox,
+    "checkbox": st.checkbox,
+    "slider": st.slider,
+    "number_input": st.number_input,
+    "image": st.image
 }
 
-user_input = {}
+
+def build_field(phase_name, fields):
+    for field_key, field in fields.items():
+        field_type = field.get("type", "")
+        field_label = field.get("label", "")
+        field_body = field.get("body", "")
+        field_value = field.get("value", "")
+        field_index = field.get("index",None)
+        field_max_chars = field.get("max_chars", None)
+        field_help = field.get("help", "")
+        field_on_click = field.get("on_click", None)
+        field_options = field.get("options", [])
+        field_horizontal = field.get("horizontal", False)
+        field_min_value = field.get("min_value",None)
+        field_max_value = field.get("max_value",None)
+        field_step = field.get("step",None)
+        field_height = field.get("height", None)
+        field_unsafe_html = field.get("unsafe_allow_html", False)
+        field_placeholder = field.get("placeholder", "")
+        field_image = field.get("image", "")
+        field_caption = field.get("caption", "")
+
+        kwargs = {}
+        if field_label:
+            kwargs['label'] = field_label
+        if field_body:
+            kwargs['body'] = field_body
+        if field_value:
+            kwargs['value'] = field_value
+        if field_index:
+            kwargs['index'] = field_index
+        if field_options:
+            kwargs['options'] = field_options
+        if field_max_chars:
+            kwargs['max_chars'] = field_max_chars
+        if field_help:
+            kwargs['help'] = field_help
+        if field_on_click:
+            kwargs['on_click'] = field_on_click
+        if field_horizontal:
+            kwargs['horizontal'] = field_horizontal
+        if field_min_value:
+            kwargs['min_value'] = field_min_value
+        if field_max_value:
+            kwargs['max_value'] = field_max_value
+        if field_step:
+            kwargs['step'] = field_step
+        if field_height:
+            kwargs['height'] = field_height
+        if field_unsafe_html:
+            kwargs['unsafe_allow_html'] = field_unsafe_html
+        if field_placeholder:
+            kwargs['placeholder'] = field_placeholder
+        if field_image:
+            kwargs['image'] = field_image
+        if field_caption:
+            kwargs['caption'] = field_caption
 
 
-def build_field(i, phases_dict):
-    phase_name = list(phases_dict.keys())[i]
-    phase_dict = list(phases_dict.values())[i]
-    field_type = phase_dict.get("type", "")
-    field_label = phase_dict.get("label", "")
-    field_body = phase_dict.get("body", "")
-    field_value = phase_dict.get("value", "")
-    field_max_chars = phase_dict.get("max_chars", None)
-    field_help = phase_dict.get("help", "")
-    field_on_click = phase_dict.get("on_click", None)
-    field_options = phase_dict.get("options", [])
-    field_horizontal = phase_dict.get("horizontal", False)
-    field_height = phase_dict.get("height", None)
-    field_unsafe_html = phase_dict.get("unsafe_allow_html", False)
-    field_placeholder = phase_dict.get("placeholder", "")
+        key = f"{phase_name}_phase_status"
 
-    kwargs = {}
-    if field_label:
-        kwargs['label'] = field_label
-    if field_body:
-        kwargs['body'] = field_body
-    if field_value:
-        kwargs['value'] = field_value
-    if field_options:
-        kwargs['options'] = field_options
-    if field_max_chars:
-        kwargs['max_chars'] = field_max_chars
-    if field_help:
-        kwargs['help'] = field_help
-    if field_on_click:
-        kwargs['on_click'] = field_on_click
-    if field_horizontal:
-        kwargs['horizontal'] = field_horizontal
-    if field_height:
-        kwargs['height'] = field_height
-    if field_unsafe_html:
-        kwargs['unsafe_allow_html'] = field_unsafe_html
-    if field_placeholder:
-        kwargs['placeholder'] = field_placeholder
+        # If the user has already answered this question:
+        if key in st.session_state and st.session_state[key]:
+            # Write their answer
+            if f"{phase_name}_user_input_{field_key}" in st.session_state:
+                if field_type != "selectbox":
+                    kwargs['value'] = st.session_state[f"{phase_name}_user_input_{field_key}"]
+                kwargs['disabled'] = True
 
-    key = f"{phase_name}_phase_status"
+        my_input_function = function_map[field_type]
 
-    # If the user has already answered this question:
-    if key in st.session_state and st.session_state[key]:
-        # Write their answer
-        if f"{phase_name}_user_input" in st.session_state:
-            if field_type != "selectbox":
-                kwargs['value'] = st.session_state[f"{phase_name}_user_input"]
-            kwargs['disabled'] = True
+        with stylable_container(
+                key="large_label",
+                css_styles="""
+                label p {
+                    font-weight: bold;
+                    font-size: 16px;
+                }
 
-    my_input_function = function_map[field_type]
-
-    with stylable_container(
-            key="large_label",
-            css_styles="""
-            label p {
-                font-weight: bold;
-                font-size: 28px;
-            }
-            """,
-    ):
-
-        user_input[phase_name] = my_input_function(**kwargs)
+                div[role="radiogroup"] label p{
+                    font-weight: unset !important;
+                    font-size: unset !important;
+                }
+                """,
+        ):
+            user_input[field_key] = my_input_function(**kwargs)
 
 
-class AssistantManager:
-    assistant_id = None
-    thread_id = None
-    llm_configuration = LLM_CONFIGURATION["gpt-4o"]
+def call_openai_completions(phase_instructions, user_prompt, image_url=None):
+    selected_llm = st.session_state['selected_llm']
+    llm_configuration = st.session_state['llm_config']
+    chat_history = st.session_state["chat_history"]
 
-    def __init__(self):
-        self.client = openai
-        self.assistant = None
-        self.thread = None
-        self.run = None
-        self.summary = None
+    if image_url and selected_llm not in ["gpt-4-turbo", "gpt-4o"]:
+        return "ERROR: This model does not support image recognition"
 
-        self.load_assistant_id()
-        if AssistantManager.assistant_id:
-            self.assistant = self.client.beta.assistants.retrieve(
-                assistant_id=AssistantManager.assistant_id
-            )
-        if AssistantManager.thread_id:
-            self.thread = self.client.beta.threads.retrieve(
-                id=AssistantManager.thread_id
-            )
-
-    def load_assistant_id(self):
+    message_history = []
+    message_history_gemini = []
+    if len(chat_history) > 0:
+        for history in chat_history:
+            user_content = history["user"]
+            assistant_content = history["assistant"]
+            message_history.extend(
+                [{"role": "user", "content": user_content}, {"role": "assistant", "content": assistant_content}])
+            message_history_gemini.extend(
+                [{"role": "user", "parts": [user_content]}, {"role": "model", "parts": [assistant_content]}])
+    if image_url:
+        messages_openai = [
+                        {"role": "system", "content": SYSTEM_PROMPT + "\n" + phase_instructions},
+                        {"role": "user", "content": [{"type": "image_url", "image_url": {"url": image_url}}]},
+                        {"role": "user", "content": user_prompt}
+                    ]
+    else:
+        messages_openai = [
+                {"role": "system", "content": SYSTEM_PROMPT + "\n" + phase_instructions},
+                {"role": "user", "content": user_prompt}
+            ]
+    if selected_llm in ["gpt-3.5-turbo", "gpt-4-turbo", "gpt-4o"]:
         try:
-            with open(ASSISTANT_ID_FILE, 'r') as file:
-                AssistantManager.assistant_id = file.read().strip()
-        except FileNotFoundError:
-            AssistantManager.assistant_id = None
-
-    def save_assistant_id(self, assistant_id):
-        with open(ASSISTANT_ID_FILE, 'w') as file:
-            file.write(assistant_id)
-
-    def create_assistant(self):
-        if not self.assistant:
-            assistant_obj = self.client.beta.assistants.create(
-                name=AssistantManager.llm_configuration["name"],
-                instructions=AssistantManager.llm_configuration["instructions"],
-                tools=AssistantManager.llm_configuration["tools"],
-                model=AssistantManager.llm_configuration["model"]
+            response = openai.chat.completions.create(
+                model=llm_configuration["model"],
+                messages= message_history+messages_openai,
+                max_tokens=llm_configuration.get("max_tokens", 1000),
+                temperature=llm_configuration.get("temperature", 1),
+                top_p=llm_configuration.get("top_p", 1),
+                frequency_penalty=llm_configuration.get("frequency_penalty", 0),
+                presence_penalty=llm_configuration.get("presence_penalty", 0)
             )
-            AssistantManager.assistant_id = assistant_obj.id
-            self.assistant = assistant_obj
-            self.save_assistant_id(assistant_obj.id)
-            st.session_state["assistant_id"] = assistant_obj.id
-
-    def create_thread(self):
-        if not self.thread:
-            if st.session_state.thread_obj:
-                print(f"Grabbing existing thread...")
-                thread_obj = st.session_state.thread_obj
-            else:
-                print(f"Creating and saving new thread")
-                thread_obj = self.client.beta.threads.create()
-                st.session_state.thread_obj = thread_obj
-
-            AssistantManager.thread_id = thread_obj.id
-            self.thread = thread_obj
-            print(f"ThreadID::: {self.thread.id}")
-        else:
-            print(f"A thread already exists: {self.thread.id}")
-
-    def add_message_to_thread(self, role, content):
-        if self.thread:
-            self.client.beta.threads.messages.create(
-                thread_id=self.thread.id,
-                role=role,
-                content=content
+            input_price = int(response.usage.prompt_tokens) * llm_configuration["price_input_token_1M"] / 1000000
+            output_price = int(response.usage.completion_tokens) * llm_configuration[
+                "price_output_token_1M"] / 1000000
+            total_price = input_price + output_price
+            st.session_state['TOTAL_PRICE'] += total_price
+            return response.choices[0].message.content
+        except Exception as e:
+            st.write(f"**OpenAI Error Response:** {selected_llm}")
+            st.error(f"Error: {e}")
+    if selected_llm in ["gemini-1.0-pro", "gemini-1.5-flash", "gemini-1.5-pro"]:
+        try:
+            generativeai.configure(api_key=gemini_api_key)
+            generation_config = {
+                "temperature": llm_configuration["temperature"],
+                "top_p": llm_configuration.get("top_p", 1),
+                "max_output_tokens": llm_configuration.get("max_tokens", 1000),
+                "response_mime_type": "text/plain",
+            }
+            model = generativeai.GenerativeModel(
+                llm_configuration["model"],
+                generation_config=generation_config,
+                system_instruction=SYSTEM_PROMPT + "\n" + phase_instructions,
             )
-
-    def run_assistant(self, instructions, current_phase, scoring_run=False):
-        if self.thread and self.assistant:
-            if not scoring_run or (scoring_run and SCORING_DEBUG_MODE):
-                res_box = st.info(body="", icon="🤖")
-            report = []
-
-            stream = self.client.beta.threads.runs.create(
-                assistant_id=self.assistant.id,
-                thread_id=self.thread.id,
-                instructions=instructions,
-                temperature=AssistantManager.llm_configuration["temperature"],
-                stream=True
+            chat_session = model.start_chat(
+                history= message_history_gemini
             )
+            gemini_response = chat_session.send_message(user_prompt)
+            gemini_response_text = gemini_response.text
 
-            context_manager = st.spinner('Checking Score...') if scoring_run else nullcontext()
-
-            result = ""
-            run_id = None
-
-            with context_manager:
-                for event in stream:
-                    if event.data.object == "thread.message.delta":
-                        # Iterate over content in the delta
-                        for content in event.data.delta.content:
-                            if content.type == 'text':
-                                # Print the value field from text deltas
-                                report.append(content.text.value)
-                                result = "".join(report).strip()
-                                if scoring_run == False:
-                                    res_box.info(body=f'{result}', icon="🤖")
-                                if scoring_run and SCORING_DEBUG_MODE:
-                                    res_box.info(body=f'SCORE (DEBUG MODE): {result}', icon="🤖")
-
-            if not run_id:
-                run_id = event.data.id
-
-            # Retrieve the run object to get the usage information
-            run = self.client.beta.threads.runs.retrieve(run_id=run_id, thread_id=self.thread.id)
-
-            if not scoring_run:
-                st_store(result, current_phase, "ai_response")
-            else:
-                st_store(result, current_phase, "ai_result")
-                score = extract_score(result)
-                st_store(score, current_phase, "ai_score")
-                st.write(f"Extracted score for {current_phase}: {score}")
-
-            # Extract token usage information from the run object
-            if 'COMPLETION_TOKENS' not in st.session_state:
-                st.session_state['COMPLETION_TOKENS'] = run.usage.completion_tokens
-            else:
-                st.session_state['COMPLETION_TOKENS'] += run.usage.completion_tokens
-
-            if 'PROMPT_TOKENS' not in st.session_state:
-                st.session_state['PROMPT_TOKENS'] = run.usage.prompt_tokens
-            else:
-                st.session_state['PROMPT_TOKENS'] += run.usage.prompt_tokens
-
-            # Calculate the cost
-            prompt_tokens = st.session_state['PROMPT_TOKENS']
-            completion_tokens = st.session_state['COMPLETION_TOKENS']
-            thread_cost = self.calculate_cost(prompt_tokens, completion_tokens)
-            #if 'TOTAL_COST' not in st.session_state:
-            #    st.session_state['TOTAL_COST'] = 0
-            st.session_state['TOTAL_COST'] = thread_cost
-
-    def calculate_cost(self, prompt_tokens, completion_tokens):
-        price_per_1k_prompt_tokens = AssistantManager.llm_configuration["price_per_1k_prompt_tokens"]  
-        price_per_1k_completion_tokens = AssistantManager.llm_configuration["price_per_1k_completion_tokens"]  
-        total_cost = ((prompt_tokens / 1000) * price_per_1k_prompt_tokens) + ((completion_tokens / 1000) * price_per_1k_completion_tokens)
-        return total_cost
+            return gemini_response_text
+        except Exception as e:
+            st.write("**Gemini Error Response:**")
+            st.error(f"Error: {e}")
+    if selected_llm in ["claude-opus", "claude-sonnet", "claude-haiku", "claude-3.5-sonnet"]:
+        try:
+            client = anthropic.Anthropic(api_key=claude_api_key)
+            anthropic_response = client.messages.create(
+                model=llm_configuration["model"],
+                max_tokens=llm_configuration["max_tokens"],
+                temperature=llm_configuration["temperature"],
+                system=SYSTEM_PROMPT + "\n" + phase_instructions,
+                messages= message_history+[
+                    {"role": "user", "content": [{"type": "text", "text": user_prompt}]},
+                ]
+            )
+            input_price = int(anthropic_response.usage.input_tokens) * llm_configuration[
+                "price_input_token_1M"] / 1000000
+            output_price = int(anthropic_response.usage.output_tokens) * llm_configuration[
+                "price_output_token_1M"] / 1000000
+            total_price = input_price + output_price
+            response_cleaned = '\n'.join([block.text for block in anthropic_response.content if block.type == 'text'])
+            st.session_state['TOTAL_PRICE'] += total_price
+            return response_cleaned
+        except Exception as e:
+            st.write(f"**Anthropic Error Response: {selected_llm}**")
+            st.error(f"Error: {e}")
 
 
-def st_store(input, phase_name, phase_key):
-    key = f"{phase_name}_{phase_key}"
-    # if key not in st.session_state:
+def format_user_prompt(prompt, user_input, phase_name=None):
+    try:
+        prompt = prompt_conditionals(prompt, user_input, phase_name)
+        formatted_user_prompt = prompt.format(**user_input)
+        return formatted_user_prompt
+    except:
+        formatted_user_prompt = prompt.format(**user_input)
+        return formatted_user_prompt
+
+
+def st_store(input, phase_name, phase_key, field_key=""):
+    if field_key:
+        key = f"{phase_name}_{field_key}_{phase_key}"
+    else:
+        key = f"{phase_name}_{phase_key}"
     st.session_state[key] = input
 
 
 def build_scoring_instructions(rubric):
-    scoring_instructions = """Please score the user's previous response based on the following rubric: \n """
-    scoring_instructions += rubric
-    scoring_instructions += """\n\nPlease output your response as JSON, using this format: { "[criteria 1]": "[score 1]", "[criteria 2]": "[score 2]", "total": "[total score]" }"""
+    scoring_instructions = f"""
+    Please score the user's previous response based on the following rubric: \n{rubric}
+    \n\nPlease output your response as JSON, using this format: {{ "[criteria 1]": "[score 1]", "[criteria 2]": "[score 2]", "total": "[total score]" }}
+    """
     return scoring_instructions
 
 
 def extract_score(text):
-    # Define the regular expression pattern
-    # regex has been modified to grab the total value whether or not it is returned inside double quotes. The AI seems to fluctuate between using quotes around values and not.
     pattern = r'"total":\s*"?(\d+)"?'
-
-    # Use regex to find the score pattern in the text
     match = re.search(pattern, text)
-
-    # If a match is found, return the score, otherwise return None
     if match:
         return int(match.group(1))
     else:
@@ -277,8 +283,10 @@ def check_score(PHASE_NAME):
 
 
 def skip_phase(PHASE_NAME, No_Submit=False):
-    st_store(user_input[PHASE_NAME], PHASE_NAME, "user_input")
-    if No_Submit == False:
+    phase_fields = PHASES[PHASE_NAME]["fields"]
+    for field_key in phase_fields:
+        st_store(user_input[field_key], PHASE_NAME, "user_input", field_key)
+    if not No_Submit:
         st.session_state[f"{PHASE_NAME}_ai_response"] = "This phase was skipped."
     st.session_state[f"{PHASE_NAME}_phase_status"] = True
     st.session_state['CURRENT_PHASE'] = min(st.session_state['CURRENT_PHASE'] + 1, len(PHASES) - 1)
@@ -292,12 +300,56 @@ def celebration():
         animation_length=1,
     )
 
+# Function to find the image URL
+def find_image_url(fields):
+    for key, value in fields.items():
+        if 'image' in value:
+            return value['image']
+    return None
+
 
 def main():
-    global ASSISTANT_ID
+    st.set_page_config(initial_sidebar_state="collapsed")
+
+    st.json(st.session_state)
+
+
+    if 'TOTAL_PRICE' not in st.session_state:
+        st.session_state['TOTAL_PRICE'] = 0
+
+    with st.sidebar:
+        selected_llm = st.selectbox("Select Language Model", options=LLM_CONFIGURATIONS.keys(), key="selected_llm")
+        # Get the initial LLM configuration from the selected model
+        initial_config = LLM_CONFIGURATIONS[selected_llm]
+
+        # Parameter adjustment inputs
+        st.session_state['llm_config'] = {
+            "model": initial_config["model"],
+            "temperature": st.slider("Temperature", min_value=0.0, max_value=1.0,
+                                     value=float(initial_config.get("temperature", 1.0)), step=0.01),
+            "max_tokens": st.slider("Max Tokens", min_value=50, max_value=4000,
+                                    value=int(initial_config.get("max_tokens", 1000)), step=50),
+            "top_p": st.slider("Top P", min_value=0.0, max_value=1.0, value=float(initial_config.get("top_p", 1.0)), step=0.1),
+            "frequency_penalty": st.slider("Frequency Penalty", min_value=0.0, max_value=1.0,
+                                           value=float(initial_config.get("frequency_penalty", 0.0)), step=0.01),
+            "presence_penalty": st.slider("Presence Penalty", min_value=0.0, max_value=1.0,
+                                          value=float(initial_config.get("presence_penalty", 0.0)), step=0.01),
+            "price_input_token_1M": st.number_input("Input Token Price 1M", value=initial_config.get("price_input_token_1M", 0)),
+            "price_output_token_1M": st.number_input("Output Token Price 1M", value=initial_config.get("price_output_token_1M", 0))
+        }
+
+        if DISPLAY_COST:
+            st.write("Price : ${:.6f}".format(st.session_state['TOTAL_PRICE']))
+
+        with st.sidebar:
+            st.subheader("Chat History")
+            for history in st.session_state['chat_history']:
+                st.markdown(f"**User:** {history['user']}")
+                st.markdown(f"**AI:** {history['assistant']}")
+                st.markdown("---")
 
     if 'CURRENT_PHASE' not in st.session_state:
-        st.session_state.thread_obj = []
+        st.session_state['CURRENT_PHASE'] = 0
 
     st.title(APP_TITLE)
     st.markdown(APP_INTRO)
@@ -307,7 +359,6 @@ def main():
             st.markdown(APP_HOW_IT_WORKS)
 
     if SHARED_ASSET:
-        # Download button for the PDF
         with open(SHARED_ASSET["path"], "rb") as asset_file:
             st.download_button(label=SHARED_ASSET["button_text"],
                                data=asset_file,
@@ -317,132 +368,181 @@ def main():
     if HTML_BUTTON:
         st.link_button(label=HTML_BUTTON["button_text"], url=HTML_BUTTON["url"])
 
-    # Create the assistant one time. Only if the Assistant ID is not found, create a new one.
-    openai_assistant = AssistantManager()
-
-    # Run the create_assistant. It only creates a new assistant if one is not found.
-    openai_assistant.create_assistant()
-
-    # Create a thread, or retrieve the existing thread if it exists in local Storage.
-    openai_assistant.create_thread()
-
     i = 0
 
-    # Create a variable for the current phase, starting at 0
-    if 'CURRENT_PHASE' not in st.session_state:
-        st.session_state['CURRENT_PHASE'] = 0
-
-    # Loop until you reach the currently active phase.
     while i <= st.session_state['CURRENT_PHASE']:
         submit_button = False
         skip_button = False
         final_phase_name = list(PHASES.keys())[-1]
         final_key = f"{final_phase_name}_ai_response"
 
-        # Build the field, according to the values in the PHASES dictionary
-        build_field(i, PHASES)
-        # Store the Name of the Phase and the values for that Phase
         PHASE_NAME = list(PHASES.keys())[i]
-        PHASE_DICT = list(PHASES.values())[i]
+        PHASE_DICT = PHASES[PHASE_NAME]
+        fields = PHASE_DICT["fields"]
+
+        st.write(f"#### Phase {i + 1}: {PHASE_DICT['name']}")
+
+        build_field(PHASE_NAME, fields)
 
         key = f"{PHASE_NAME}_phase_status"
 
-        # Check phase status to automatically continue if it's a markdown phase
-        if PHASE_DICT["type"] == "markdown":
+        user_prompt_template = PHASE_DICT.get("user_prompt", "")
+        if PHASE_DICT.get("show_prompt", False):
+            with st.expander("View/edit full prompt"):
+                formatted_user_prompt = st.text_area(
+                    label="Prompt",
+                    height=100,
+                    max_chars=50000,
+                    value=format_user_prompt(user_prompt_template, user_input, PHASE_NAME),
+                    disabled=PHASE_DICT.get("read_only_prompt",False)
+                    )
+        else:
+            formatted_user_prompt = format_user_prompt(user_prompt_template, user_input, PHASE_NAME)
+
+        if PHASE_DICT.get("no_submission", False):
             if key not in st.session_state:
                 st.session_state[key] = True
                 st.session_state['CURRENT_PHASE'] = min(st.session_state['CURRENT_PHASE'] + 1, len(PHASES) - 1)
+                st.session_state[f"{PHASE_NAME}_phase_completed"] = True
+                st.rerun()
 
         if key not in st.session_state:
             st.session_state[key] = False
-        # If the phase isn't passed and it isn't a recap of the final phase, then give the user a submit button
-        if st.session_state[key] != True and final_key not in st.session_state:
-            with st.container(border=False):
+
+        if not st.session_state.get(f"{PHASE_NAME}_phase_completed", False):
+            with st.container():
                 col1, col2 = st.columns(2)
                 with col1:
                     submit_button = st.button(label=PHASE_DICT.get("button_label", "Submit"), type="primary",
-                                              key="submit " + str(i))
+                                              key=f"submit {i}")
                 with col2:
                     if PHASE_DICT.get("allow_skip", False):
-                        skip_button = st.button(label="Skip Question", key="skip " + str(i))
+                        skip_button = st.button(label="Skip Question", key=f"skip {i}")
 
-        # If the phase has user input:
-        key = f"{PHASE_NAME}_user_input"
+        key = f"{PHASE_NAME}_ai_response"
         if key in st.session_state:
-            # Then try to print the stored AI Response
-            key = f"{PHASE_NAME}_ai_response"
-            # If the AI has responded:
-            if key in st.session_state:
-                # Then print the stored AI Response
-                st.info(st.session_state[key], icon="🤖")
-            key = f"{PHASE_NAME}_ai_result"
-            # If we are showing a score:
-            if key in st.session_state and SCORING_DEBUG_MODE == True:
-                # Then print the stored AI Response
-                st.info(st.session_state[key], icon="🤖")
+            st.info(st.session_state[key], icon="🤖")
 
-        if submit_button:     
-            # Add INSTRUCTIONS message to the thread
-            openai_assistant.add_message_to_thread(
-                role="assistant",
-                content=PHASE_DICT.get("instructions", "")
-            )
+        key = f"{PHASE_NAME}_ai_score_debug"
+        if key in st.session_state:
+            st.info(st.session_state[key], icon="🤖")
 
-            # Store the users input in a session variable
-            st_store(user_input[PHASE_NAME], PHASE_NAME, "user_input")
-            # Add USER MESSAGE to the thread
-            openai_assistant.add_message_to_thread(
-                role="user",
-                content=user_input[PHASE_NAME]
-            )
-            # Currently, all instructions are handled in the system prompts, so no need to add additional instructions here.
-            instructions = ""
-            # Run the thread
-            if PHASE_DICT.get("skip_run", False) == False:
-                # Only run the assistant if skip_run is False. If skip_run is true, then we just add messages to the thread and will run them all in some future phase. 
-                openai_assistant.run_assistant(instructions, PHASE_NAME)
+        key = f"{PHASE_NAME}_ai_response_revision_1"
+        # If there are any revisions, enter the loop
+        if key in st.session_state:
+            z = 1
+            while z <= PHASE_DICT.get("max_revisions",10):
+                key = f"{PHASE_NAME}_ai_response_revision_{z}"
+                if key in st.session_state:
+                    st.info(st.session_state[key], icon="🤖")
+                z += 1
 
-            if 'ai_response' in PHASE_DICT:
+        if submit_button:
+            for field_key, field in fields.items():
+                st_store(user_input[field_key], PHASE_NAME, "user_input", field_key)
+
+            phase_instructions = PHASE_DICT.get("phase_instructions", "")
+            user_prompt_template = PHASE_DICT.get("user_prompt", "")
+
+            image_url = find_image_url(PHASE_DICT.get('fields', {}))
+
+            if PHASE_DICT.get("ai_response", True):
+                if PHASE_DICT.get("scored_phase", False):
+                    if "rubric" in PHASE_DICT:
+                        scoring_instructions = build_scoring_instructions(PHASE_DICT["rubric"])
+                        ai_feedback = call_openai_completions(phase_instructions, formatted_user_prompt, image_url)
+                        st.info(body=ai_feedback, icon="🤖")
+                        ai_score = call_openai_completions(scoring_instructions, ai_feedback)
+                        st.info(ai_score, icon="🤖")
+                        st_store(ai_feedback, PHASE_NAME, "ai_response")
+                        st_store(ai_score, PHASE_NAME, "ai_score_debug")
+                        score = extract_score(ai_score)
+                        st_store(score, PHASE_NAME, "ai_score")
+                        st.session_state['chat_history'].append({
+                            "user": formatted_user_prompt,
+                            "assistant": ai_feedback
+                        })
+                        st.session_state["ai_score"] = ai_score
+                        st.session_state['score'] = score
+                        if check_score(PHASE_NAME):
+                            st.session_state['CURRENT_PHASE'] = min(st.session_state['CURRENT_PHASE'] + 1, len(PHASES) - 1)
+                            st.session_state[f"{PHASE_NAME}_phase_completed"] = True
+                            st.rerun()
+                        else:
+                            st.warning("You haven't passed. Please try again.")
+                    else:
+                        st.error('You need to include a rubric for a scored phase', icon="🚨")
+                else:
+                    ai_feedback = call_openai_completions(phase_instructions, formatted_user_prompt, image_url)
+                    st_store(ai_feedback, PHASE_NAME, "ai_response")
+                    st.session_state['chat_history'].append({
+                        "user": formatted_user_prompt,
+                        "assistant": ai_feedback
+                    })
+                    st.session_state['CURRENT_PHASE'] = min(st.session_state['CURRENT_PHASE'] + 1, len(PHASES) - 1)
+                    st.session_state[f"{PHASE_NAME}_phase_completed"] = True
+                    st.rerun()
+            else:
                 res_box = st.info(body="", icon="🤖")
                 result = ""
-                report = []
-                
-                hard_coded_message = PHASE_DICT['ai_response']
-                #TO-DO: This is supposed to stream, but it does not right now.
+                hard_coded_message = PHASE_DICT.get('custom_response', None)
+                hard_coded_message = format_user_prompt(hard_coded_message, user_input, PHASE_NAME)
                 for char in hard_coded_message:
                     result += char
-                    report.append(char)
-                    res_box.info(body=f'{result}', icon="🤖")
+                    res_box.info(body=result, icon="🤖")
                 st.session_state[f"{PHASE_NAME}_ai_response"] = hard_coded_message
-                st_store(user_input[PHASE_NAME], PHASE_NAME, "user_input")
-
-
-            if PHASE_DICT.get("scored_phase", "") == True:
-                if "rubric" in PHASE_DICT:
-                    scoring_instructions = build_scoring_instructions(PHASE_DICT["rubric"])
-                    openai_assistant.add_message_to_thread(
-                        role="assistant",
-                        content=scoring_instructions,
-                    )
-                    openai_assistant.run_assistant(instructions, PHASE_NAME, True)
-                    if check_score(PHASE_NAME):
-                        st.session_state['CURRENT_PHASE'] = min(st.session_state['CURRENT_PHASE'] + 1, len(PHASES) - 1)
-                        # Rerun Streamlit to refresh the page
-                        st.rerun()
-                    else:
-                        st.warning("You haven't passed. Please try again.")
-                else:
-                    st.error('You need to include a rubric for a scored phase', icon="🚨")
-            else:
-                st.session_state[f"{PHASE_NAME}_phase_status"] = True
+                st.session_state['chat_history'].append({
+                    "user": formatted_user_prompt,
+                    "assistant": hard_coded_message
+                })
                 st.session_state['CURRENT_PHASE'] = min(st.session_state['CURRENT_PHASE'] + 1, len(PHASES) - 1)
-                # Rerun Streamlit to refresh the page
+                st.session_state[f"{PHASE_NAME}_phase_completed"] = True
                 st.rerun()
 
+        if PHASE_DICT.get("allow_revisions", False):
+            if f"{PHASE_NAME}_ai_response" in st.session_state:
+                # Check if the current phase is the latest completed phase
+                is_latest_completed_phase = i == st.session_state['CURRENT_PHASE'] or (
+                            i == st.session_state['CURRENT_PHASE'] - 1 and not st.session_state.get(
+                        f"{list(PHASES.keys())[i + 1]}_phase_completed", False))
 
+                # Check if it's not the last phase and the phase wasn't skipped
+                is_not_last_phase = PHASE_NAME != final_phase_name
+                is_not_skipped = not st.session_state.get(f"{PHASE_NAME}_skipped", False)
+
+                if is_latest_completed_phase and is_not_last_phase and is_not_skipped:
+                    with st.expander("Revise this response?"):
+                        max_revisions = PHASE_DICT.get("max_revisions", 10)
+                        if f"{PHASE_NAME}_revision_count" not in st.session_state:
+                            st_store(0, PHASE_NAME, "revision_count")
+                        if st.session_state[f"{PHASE_NAME}_revision_count"] < max_revisions:
+                            st.session_state['additional_prompt'] = st.text_input("Enter additional prompt", value="",
+                                                                                  key=PHASE_NAME)
+                            if st.button("Revise", key=f"revise_{i}"):
+                                st.session_state[f"{PHASE_NAME}_revision_count"] += 1
+
+                                phase_instructions = PHASE_DICT.get("phase_instructions", "")
+                                user_prompt_template = PHASE_DICT.get("user_prompt", "")
+                                formatted_user_prompt = format_user_prompt(user_prompt_template, user_input, PHASE_NAME)
+
+                                formatted_user_prompt += st.session_state['additional_prompt']
+
+                                ai_feedback = call_openai_completions(phase_instructions, formatted_user_prompt)
+
+                                st_store(ai_feedback, PHASE_NAME, "ai_response_revision_" + str(
+                                    st.session_state[f"{PHASE_NAME}_revision_count"]))
+                                st.session_state['chat_history'].append({
+                                    "user": formatted_user_prompt,
+                                    "assistant": ai_feedback
+                                })
+                                st.rerun()
+                        else:
+                            st.warning("Revision limits exceeded")
 
         if skip_button:
             skip_phase(PHASE_NAME)
+            st.session_state[f"{PHASE_NAME}_phase_completed"] = True
+            st.session_state[f"{PHASE_NAME}_skipped"] = True
             st.rerun()
 
         if final_key in st.session_state and i == st.session_state['CURRENT_PHASE']:
@@ -450,13 +550,7 @@ def main():
             if COMPLETION_CELEBRATION:
                 celebration()
 
-
-        # Increment i, but never more than the number of possible phases
         i = min(i + 1, len(PHASES))
-
-    if 'TOTAL_COST' in st.session_state:
-        st.markdown(f"<span style='font-size: .8em; font-style: italic;'>:dollar: Cost: ${st.session_state['TOTAL_COST']}</span>", unsafe_allow_html=True)
-
 
 if __name__ == "__main__":
     main()
